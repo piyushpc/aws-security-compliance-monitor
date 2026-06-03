@@ -1,0 +1,271 @@
+import boto3
+from collections import Counter
+
+ec2 = boto3.client('ec2')
+sns = boto3.client('sns')
+
+SNS_TOPIC_ARN = "arn:aws:sns:ap-south-1:152031363284:security-compliance-alerts"
+
+CRITICAL_PORTS = {
+    22: "SSH",
+    3389: "RDP",
+    3306: "MySQL",
+    1433: "MSSQL"
+}
+
+HIGH_PORTS = {
+    5432: "PostgreSQL",
+    6379: "Redis",
+    27017: "MongoDB"
+}
+
+
+def get_instance_name(tags):
+    if not tags:
+        return "No-Name"
+
+    for tag in tags:
+        if tag["Key"] == "Name":
+            return tag["Value"]
+
+    return "No-Name"
+
+
+def send_sns_report(findings):
+
+    if not findings:
+        print("No findings. SNS skipped.")
+        return
+
+    critical_count = sum(
+        1 for item in findings
+        if item["Risk"] == "CRITICAL"
+    )
+
+    high_count = sum(
+        1 for item in findings
+        if item["Risk"] == "HIGH"
+    )
+
+    service_counter = Counter(
+        item["Service"]
+        for item in findings
+    )
+
+    message = []
+
+    message.append("AWS SECURITY COMPLIANCE REPORT")
+    message.append("=" * 60)
+    message.append("")
+
+    message.append(
+        f"Total Findings : {len(findings)}"
+    )
+
+    message.append(
+        f"Critical Findings : {critical_count}"
+    )
+
+    message.append(
+        f"High Findings : {high_count}"
+    )
+
+    message.append("")
+    message.append("TOP EXPOSED SERVICES")
+    message.append("-" * 30)
+
+    for service, count in service_counter.items():
+        message.append(
+            f"{service}: {count}"
+        )
+
+    message.append("")
+    message.append("=" * 60)
+    message.append("DETAILED FINDINGS")
+    message.append("=" * 60)
+    message.append("")
+
+    for item in findings:
+
+        message.append(
+            f"""
+Risk           : {item['Risk']}
+Service        : {item['Service']}
+Port           : {item['Port']}
+Instance Name  : {item['InstanceName']}
+Instance ID    : {item['InstanceId']}
+Private IP     : {item['PrivateIP']}
+Security Group : {item['SecurityGroup']}
+SecurityGroupId: {item['SecurityGroupId']}
+CIDR           : {item['CIDR']}
+------------------------------------------------------------
+"""
+        )
+
+    try:
+
+        response = sns.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Subject="AWS Weekly Security Compliance Report",
+            Message="\n".join(message)
+        )
+
+        print(
+            f"SNS sent successfully: "
+            f"{response['MessageId']}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"SNS Error: {str(e)}"
+        )
+
+
+def lambda_handler(event, context):
+
+    findings = []
+
+    response = ec2.describe_instances()
+
+    for reservation in response['Reservations']:
+
+        for instance in reservation['Instances']:
+
+            if instance['State']['Name'] != 'running':
+                continue
+
+            instance_name = get_instance_name(
+                instance.get('Tags', [])
+            )
+
+            instance_id = instance['InstanceId']
+
+            private_ip = instance.get(
+                'PrivateIpAddress',
+                'N/A'
+            )
+
+            for sg in instance['SecurityGroups']:
+
+                sg_id = sg['GroupId']
+
+                sg_response = ec2.describe_security_groups(
+                    GroupIds=[sg_id]
+                )
+
+                security_group = (
+                    sg_response['SecurityGroups'][0]
+                )
+
+                sg_name = security_group[
+                    'GroupName'
+                ]
+
+                for permission in security_group.get(
+                    'IpPermissions',
+                    []
+                ):
+
+                    from_port = permission.get(
+                        'FromPort'
+                    )
+
+                    if from_port is None:
+                        continue
+
+                    risk = None
+                    service = None
+
+                    if from_port in CRITICAL_PORTS:
+
+                        risk = "CRITICAL"
+
+                        service = (
+                            CRITICAL_PORTS[
+                                from_port
+                            ]
+                        )
+
+                    elif from_port in HIGH_PORTS:
+
+                        risk = "HIGH"
+
+                        service = (
+                            HIGH_PORTS[
+                                from_port
+                            ]
+                        )
+
+                    else:
+                        continue
+
+                    for ip_range in permission.get(
+                        'IpRanges',
+                        []
+                    ):
+
+                        if (
+                            ip_range.get(
+                                'CidrIp'
+                            )
+                            == '0.0.0.0/0'
+                        ):
+
+                            findings.append({
+
+                                "Risk": risk,
+
+                                "Service": service,
+
+                                "Port": from_port,
+
+                                "InstanceName":
+                                    instance_name,
+
+                                "InstanceId":
+                                    instance_id,
+
+                                "PrivateIP":
+                                    private_ip,
+
+                                "SecurityGroup":
+                                    sg_name,
+
+                                "SecurityGroupId":
+                                    sg_id,
+
+                                "CIDR":
+                                    "0.0.0.0/0"
+                            })
+
+    print("=" * 80)
+    print(
+        "AWS SECURITY COMPLIANCE REPORT"
+    )
+    print("=" * 80)
+
+    for item in findings:
+
+        print(
+            f"[{item['Risk']}] "
+            f"{item['InstanceName']} | "
+            f"{item['InstanceId']} | "
+            f"{item['Service']} | "
+            f"Port {item['Port']} | "
+            f"{item['SecurityGroup']}"
+        )
+
+    print("=" * 80)
+    print(
+        f"TOTAL FINDINGS: {len(findings)}"
+    )
+    print("=" * 80)
+
+    send_sns_report(findings)
+
+    return {
+        "statusCode": 200,
+        "total_findings": len(findings),
+        "findings": findings
+    }

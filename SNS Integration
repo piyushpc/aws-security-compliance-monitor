@@ -1,0 +1,47 @@
+AWS SNS Security Alert Integration
+Integrated Amazon SNS (Simple Notification Service) with the AWS Security Compliance Monitoring solution.
+Configured automated email notifications for critical security findings detected across AWS infrastructure.
+Developed AWS Lambda functions to analyze EC2 Security Groups, identify exposed ports (SSH, RDP, Database Ports), and publish alerts to SNS topics.
+Implemented real-time notifications for:
+Publicly exposed SSH (Port 22)
+Publicly exposed RDP (Port 3389)
+Publicly accessible database ports (MySQL, PostgreSQL, MongoDB, etc.)
+Non-compliant Security Group configurations
+Generated detailed compliance reports including:
+Instance Name
+Instance ID
+Public IP
+Open Port
+Risk Level (Critical/High/Medium)
+Recommended Remediation
+Used SNS Topic:
+arn:aws:sns:ap-south-1:152031363284:security-compliance-alerts
+Reduced manual security audits by enabling automated compliance monitoring and instant alerting.
+
+
+Architecture
+EC2 Instances
+      │
+      ▼
+Security Groups
+      │
+      ▼
+AWS Lambda Compliance Checker
+      │
+      ▼
+Amazon SNS Topic
+      │
+      ▼
+Email Notifications to DevOps/Security Team
+
+
+
+AWS Services Used
+AWS Lambda
+Amazon SNS
+Amazon EC2
+Security Groups
+IAM
+CloudWatch Logs
+EventBridge (Scheduled Execution)
+This is a solid DevOps/Security Automation project and demonstrates AWS Security, Automation, Monitoring, and Compliance skills.

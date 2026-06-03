@@ -1,0 +1,16 @@
+Architecture
+
+
+
+
+EventBridge (Weekly Schedule)
+↓
+AWS Lambda
+↓
+EC2 Security Group Scan
+↓
+Risk Analysis
+↓
+Amazon SNS
+↓
+Email Notifications
